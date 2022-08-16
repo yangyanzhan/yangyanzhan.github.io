@@ -1,0 +1,15 @@
+#editor {
+  position: absolute; top: 0; left: 0; right: 10%; bottom: 0; font-size: 30px; background-color: black; color: lightseagreen;
+}
+#buttons {
+  position: absolute; top: 0; left: 90%; right: 0; bottom: 0; border-left: 3px dotted lightblue;
+}
+.button-box {
+  display: flex; align-items: center; justify-content: center;
+}
+.button {
+  color: lightgreen; background-color: black; border: 3px dotted #1c87c9; border-radius: 10px; margin-top: 10px; margin-bottom: 10px; font: 26px bold; height: 50px; width: 90px; text-align: center; line-height: 40px;
+}
+#app {
+  position: absolute; top: 0; left: 0; right: 10%; bottom: 0; visibility: hidden; z-index: 100; width: 90%; height: 100%;
+}
