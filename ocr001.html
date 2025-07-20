@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>采血管OCR识别工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        secondary: '#36CFC9',
+                        success: '#52C41A',
+                        warning: '#FAAD14',
+                        danger: '#FF4D4F',
+                        dark: '#1F2329',
+                        light: '#F2F3F5'
+                    },
+                    fontFamily: {
+                        inter: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .camera-container {
+                position: relative;
+                overflow: hidden;
+                border-radius: 12px;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            }
+            .shutter-animation {
+                animation: shutter 0.5s ease-in-out;
+            }
+            @keyframes shutter {
+                0% { opacity: 1; }
+                50% { opacity: 0.5; }
+                100% { opacity: 1; }
+            }
+            .result-fade-in {
+                animation: fadeIn 0.5s ease-in-out;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            .pulse {
+                animation: pulse 2s infinite;
+            }
+            @keyframes pulse {
+                0% { transform: scale(1); }
+                50% { transform: scale(1.05); }
+                100% { transform: scale(1); }
+            }
+        }
+    </style>
+</head>
+<body class="font-inter bg-gray-50 min-h-screen flex flex-col">
+    <!-- 顶部导航 -->
+    <header class="bg-white shadow-sm">
+        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <i class="fa fa-camera text-primary text-2xl"></i>
+                <h1 class="text-xl font-bold text-dark">采血管OCR识别工具</h1>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主要内容区 -->
+    <main class="flex-grow container mx-auto px-4 py-8">
+        <div class="max-w-4xl mx-auto">
+            <!-- 摄像头和控制区 -->
+            <div class="bg-white rounded-lg shadow-sm p-6 mb-8">
+                <div class="camera-container w-full aspect-video bg-gray-100 mb-6">
+                    <!-- 摄像头预览 -->
+                    <video id="cameraPreview" class="w-full h-full object-cover" autoplay playsinline></video>
+                    
+                    <!-- 初始提示 -->
+                    <div id="cameraPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-100">
+                        <i class="fa fa-video-camera text-gray-400 text-5xl mb-4 pulse"></i>
+                        <p class="text-gray-500">请点击下方按钮开启摄像头</p>
+                    </div>
+                    
+                    <!-- 截图预览 (默认隐藏) -->
+                    <canvas id="snapshotCanvas" class="absolute inset-0 w-full h-full object-cover hidden"></canvas>
+                </div>
+
+                <!-- 控制按钮 -->
+                <div class="flex flex-wrap gap-4 justify-center">
+                    <button id="startCameraBtn" class="bg-primary hover:bg-primary/90 text-white px-6 py-3 rounded-full flex items-center transition-all shadow-md hover:shadow-lg">
+                        <i class="fa fa-play-circle mr-2"></i>开启摄像头
+                    </button>
+                    <button id="captureBtn" class="bg-success hover:bg-success/90 text-white px-6 py-3 rounded-full flex items-center transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                        <i class="fa fa-camera mr-2"></i>拍摄并识别
+                    </button>
+                    <button id="resetBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 py-3 rounded-full flex items-center transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                        <i class="fa fa-refresh mr-2"></i>重新拍摄
+                    </button>
+                </div>
+            </div>
+
+            <!-- 配置区域 -->
+            <div class="bg-white rounded-lg shadow-sm p-6 mb-8" style="display: none;">
+                <h2 class="text-lg font-semibold mb-4 flex items-center">
+                    <i class="fa fa-cog text-primary mr-2"></i>OCR配置
+                </h2>
+                
+                <div class="grid md:grid-cols-2 gap-4" style="display: none;">
+                    <div class="space-y-2">
+                        <label class="block text-sm font-medium text-gray-700">Access Key ID</label>
+                        <input type="text" id="accessKey" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary" placeholder="请输入Access Key">
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <label class="block text-sm font-medium text-gray-700">Secret Access Key</label>
+                        <input type="password" id="secretKey" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary" placeholder="请输入Secret Key">
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <label class="block text-sm font-medium text-gray-700">区域</label>
+                        <input type="text" id="region" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary" value="cn-north-1" placeholder="例如: cn-north-1">
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <label class="block text-sm font-medium text-gray-700">识别模式</label>
+                        <select id="mode" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary">
+                            <option value="default">默认模式</option>
+                            <option value="text_block">文本块模式</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 加载状态 (默认隐藏) -->
+            <div id="loadingIndicator" class="hidden bg-white rounded-lg shadow-sm p-6 mb-8 text-center">
+                <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-primary border-t-transparent mb-4"></div>
+                <p class="text-gray-600">正在识别中，请稍候...</p>
+            </div>
+
+            <!-- 错误提示 (默认隐藏) -->
+            <div id="errorAlert" class="hidden bg-danger/10 border border-danger/20 text-danger rounded-lg p-6 mb-8">
+                <div class="flex items-start">
+                    <i class="fa fa-exclamation-circle text-xl mt-0.5 mr-3"></i>
+                    <div>
+                        <h3 class="font-medium">识别失败</h3>
+                        <p id="errorMessage" class="text-sm mt-1">错误信息将显示在这里</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 结果区域 (默认隐藏) -->
+            <div id="resultContainer" class="hidden bg-white rounded-lg shadow-sm p-6 mb-8">
+                <h2 class="text-lg font-semibold mb-4 flex items-center">
+                    <i class="fa fa-file-text-o text-primary mr-2"></i>识别结果
+                </h2>
+                
+                <div class="mb-4 text-sm text-gray-500 flex justify-between">
+                    <div>识别时间: <span id="recognitionTime">-</span></div>
+                    <div>平均置信度: <span id="averageConfidence">-</span></div>
+                </div>
+                
+                <div id="resultText" class="p-4 bg-gray-50 rounded-md min-h-[100px] whitespace-pre-wrap"></div>
+                
+                <div class="mt-4 flex justify-end">
+                    <button id="copyResultBtn" class="text-primary hover:text-primary/80 text-sm flex items-center transition-colors">
+                        <i class="fa fa-copy mr-1"></i>复制结果
+                    </button>
+                </div>
+            </div>
+
+            <!-- 识别详情 (默认隐藏) -->
+            <div id="detailsContainer" class="hidden bg-white rounded-lg shadow-sm p-6 mb-8">
+                <h2 class="text-lg font-semibold mb-4 flex items-center">
+                    <i class="fa fa-list-alt text-primary mr-2"></i>识别详情
+                </h2>
+                
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">文本内容</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">置信度</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">位置信息</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detailsTableBody" class="bg-white divide-y divide-gray-200">
+                            <!-- 表格内容将通过JS动态填充 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="bg-white border-t border-gray-200 py-6">
+        <div class="container mx-auto px-4 text-center text-gray-500 text-sm">
+            <p></p>
+        </div>
+    </footer>
+
+    <script>
+        // DOM元素
+        const cameraPreview = document.getElementById('cameraPreview');
+        const cameraPlaceholder = document.getElementById('cameraPlaceholder');
+        const snapshotCanvas = document.getElementById('snapshotCanvas');
+        const startCameraBtn = document.getElementById('startCameraBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const errorAlert = document.getElementById('errorAlert');
+        const errorMessage = document.getElementById('errorMessage');
+        const resultContainer = document.getElementById('resultContainer');
+        const resultText = document.getElementById('resultText');
+        const recognitionTime = document.getElementById('recognitionTime');
+        const averageConfidence = document.getElementById('averageConfidence');
+        const detailsContainer = document.getElementById('detailsContainer');
+        const detailsTableBody = document.getElementById('detailsTableBody');
+        const copyResultBtn = document.getElementById('copyResultBtn');
+        const accessKeyInput = document.getElementById('accessKey');
+        const secretKeyInput = document.getElementById('secretKey');
+        const regionInput = document.getElementById('region');
+        const modeSelect = document.getElementById('mode');
+
+        // 全局变量
+        let stream = null;
+        let ocrResult = null;
+
+        // 初始化事件监听
+        function initEventListeners() {
+            startCameraBtn.addEventListener('click', startCamera);
+            captureBtn.addEventListener('click', captureAndRecognize);
+            resetBtn.addEventListener('click', resetCamera);
+            copyResultBtn.addEventListener('click', copyResult);
+        }
+
+        // 启动摄像头
+        async function startCamera() {
+            try {
+                // 请求摄像头权限
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        facingMode: 'environment' // 优先使用后置摄像头
+                    } 
+                });
+                
+                // 显示摄像头预览
+                cameraPreview.srcObject = stream;
+                cameraPlaceholder.classList.add('hidden');
+                
+                // 更新按钮状态
+                startCameraBtn.disabled = true;
+                captureBtn.disabled = false;
+                resetBtn.disabled = false;
+                
+                // 提示用户
+                showToast('摄像头已开启');
+            } catch (error) {
+                console.error('启动摄像头失败:', error);
+                showError('无法访问摄像头，请确保已授予摄像头权限并检查设备是否正常。');
+                
+                // 常见错误处理
+                if (error.name === 'NotAllowedError') {
+                    errorMessage.textContent = '请在浏览器设置中允许摄像头权限后重试。';
+                } else if (error.name === 'NotFoundError') {
+                    errorMessage.textContent = '未检测到可用摄像头设备。';
+                } else if (error.name === 'NotReadableError') {
+                    errorMessage.textContent = '摄像头被占用或无法访问，请关闭其他使用摄像头的应用后重试。';
+                }
+            }
+        }
+
+        // 重置摄像头
+        function resetCamera() {
+            // 隐藏截图，显示摄像头预览
+            snapshotCanvas.classList.add('hidden');
+            cameraPreview.classList.remove('hidden');
+            
+            // 隐藏结果和错误信息
+            resultContainer.classList.add('hidden');
+            detailsContainer.classList.add('hidden');
+            errorAlert.classList.add('hidden');
+            
+            // 启用拍摄按钮
+            captureBtn.disabled = false;
+        }
+
+        // 拍摄并识别
+        async function captureAndRecognize() {
+            // 二改代码
+            const accessKey = accessKeyInput.value || '';
+            const secretKey = secretKeyInput.value || '';
+            const region = regionInput.value || 'cn-north-1';
+            const mode = modeSelect.value || 'default';
+
+            // 验证API密钥
+            if (!accessKeyInput || !secretKeyInput) {
+                showError('请先填写Access Key ID和Secret Access Key');
+                return;
+            }
+            
+            // 创建截图
+            const canvasContext = snapshotCanvas.getContext('2d');
+            snapshotCanvas.width = cameraPreview.videoWidth;
+            snapshotCanvas.height = cameraPreview.videoHeight;
+            canvasContext.drawImage(cameraPreview, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
+            
+            // 添加快门动画效果
+            cameraPreview.classList.add('shutter-animation');
+            setTimeout(() => {
+                cameraPreview.classList.remove('shutter-animation');
+            }, 500);
+            
+            // 隐藏摄像头预览，显示截图
+            cameraPreview.classList.add('hidden');
+            snapshotCanvas.classList.remove('hidden');
+            
+            // 禁用拍摄按钮
+            captureBtn.disabled = true;
+            
+            // 显示加载状态
+            loadingIndicator.classList.remove('hidden');
+            errorAlert.classList.add('hidden');
+            resultContainer.classList.add('hidden');
+            detailsContainer.classList.add('hidden');
+            
+            try {
+                // 将截图转换为Base64 (不含头部)
+                const base64Image = snapshotCanvas.toDataURL('image/jpeg')
+                    .replace('data:image/jpeg;base64,', '');
+                
+                // 调用OCR API
+                const startTime = performance.now();
+                ocrResult = await callOcrApi(base64Image);
+                const endTime = performance.now();
+                const processTime = ((endTime - startTime) / 1000).toFixed(2);
+                
+                // 隐藏加载状态
+                loadingIndicator.classList.add('hidden');
+                
+                // 显示结果
+                displayResult(ocrResult, processTime);
+            } catch (error) {
+                console.error('OCR识别失败:', error);
+                
+                // 隐藏加载状态
+                loadingIndicator.classList.add('hidden');
+                
+                // 显示错误信息
+                showError(error.message || 'OCR识别过程中发生错误');
+            }
+        }
+
+        // 调用火山引擎OCR API
+        async function callOcrApi(imageBase64) {
+            const accessKey = accessKeyInput.value;
+            const secretKey = secretKeyInput.value;
+            const region = regionInput.value || 'cn-north-1';
+            const mode = modeSelect.value;
+            
+            // 接口信息
+            const apiUrl = 'https://visual.volcengineapi.com';
+            const action = 'OCRNormal';
+            const version = '2020-08-26';
+            
+            // 获取当前UTC时间
+            const utcDate = new Date();
+            const shortDate = utcDate.toISOString().split('T')[0].replace(/-/g, '');
+            const dateTime = utcDate.toISOString().replace(/[-:.]/g, '').replace('Z', 'Z');
+            
+            // 构建请求参数
+            const queryParams = new URLSearchParams({
+                Action: action,
+                Version: version
+            });
+            
+            const bodyParams = new URLSearchParams({
+                image_base64: imageBase64,
+                mode: mode
+            });
+            
+            // 构建签名
+            const signedHeaders = 'content-type;host';
+            const host = 'visual.volcengineapi.com';
+            const content_type = 'application/x-www-form-urlencoded';
+            
+            // 构建规范请求
+            const canonicalRequest = [
+                'POST',
+                '/',
+                queryParams.toString(),
+                `content-type:${content_type}`,
+                `host:${host}`,
+                '',
+                signedHeaders,
+                await sha256Hash(bodyParams.toString())
+            ].join('\n');
+            
+            // 构建签名上下文
+            const credentialScope = `${shortDate}/${region}/cv/request`;
+            const stringToSign = [
+                'HMAC-SHA256',
+                dateTime,
+                credentialScope,
+                await sha256Hash(canonicalRequest)
+            ].join('\n');
+            
+            // 计算签名
+            const signingKey = await hmacSha256(
+                await hmacSha256(
+                    await hmacSha256(
+                        await hmacSha256(secretKey, shortDate),
+                        region
+                    ),
+                    'cv'
+                ),
+                'request'
+            );
+            
+            const signature = await hmacSha256(signingKey, stringToSign, 'hex');
+            
+            // 构建Authorization头
+            const authorization = `HMAC-SHA256 Credential=${accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+            
+            // 发送请求
+            const response = await fetch(`${apiUrl}?${queryParams.toString()}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': content_type,
+                    'X-Date': dateTime,
+                    'Authorization': authorization
+                },
+                body: bodyParams.toString()
+            });
+            
+            const responseData = await response.json();
+            
+            // 处理响应
+            if (!response.ok) {
+                const errorMsg = responseData.message || `API请求失败 (${response.status})`;
+                throw new Error(errorMsg);
+            }
+            
+            if (responseData.code !== 10000) {
+                throw new Error(responseData.message || `OCR处理失败 (错误码: ${responseData.code})`);
+            }
+            
+            if (!responseData.data || !responseData.data.line_texts) {
+                throw new Error('未获取到有效的识别结果');
+            }
+            
+            return responseData;
+        }
+
+        // 显示识别结果
+        function displayResult(result, processTime) {
+            ocrResult = result;
+            
+            // 更新结果文本
+            const texts = result.data.line_texts.filter(text => text.trim() !== '');
+            resultText.textContent = texts.join('\n');
+            
+            // 更新识别时间
+            recognitionTime.textContent = `${processTime}秒`;
+            
+            // 计算平均置信度
+            if (result.data.line_probs && result.data.line_probs.length > 0) {
+                const sum = result.data.line_probs.reduce((acc, prob) => acc + prob, 0);
+                const avg = (sum / result.data.line_probs.length * 100).toFixed(2);
+                averageConfidence.textContent = `${avg}%`;
+            } else {
+                averageConfidence.textContent = '未提供';
+            }
+            
+            // 填充详情表格
+            detailsTableBody.innerHTML = '';
+            if (texts.length > 0) {
+                texts.forEach((text, index) => {
+                    const row = document.createElement('tr');
+                    row.className = index % 2 === 0 ? 'bg-white' : 'bg-gray-50';
+                    
+                    const confidence = result.data.line_probs && result.data.line_probs[index] 
+                        ? `${(result.data.line_probs[index] * 100).toFixed(2)}%` 
+                        : 'N/A';
+                    
+                    let position = 'N/A';
+                    if (result.data.line_rects && result.data.line_rects[index]) {
+                        const rect = result.data.line_rects[index];
+                        position = `x: ${rect.x.toFixed(2)}, y: ${rect.y.toFixed(2)}, w: ${rect.width.toFixed(2)}, h: ${rect.height.toFixed(2)}`;
+                    }
+                    
+                    row.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap">${text}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">${confidence}</td>
+                        <td class="px-6 py-4 text-sm text-gray-500">${position}</td>
+                    `;
+                    
+                    detailsTableBody.appendChild(row);
+                });
+            } else {
+                const emptyRow = document.createElement('tr');
+                emptyRow.innerHTML = `
+                    <td colspan="3" class="px-6 py-8 text-center text-gray-500">
+                        未识别到任何文本
+                    </td>
+                `;
+                detailsTableBody.appendChild(emptyRow);
+            }
+            
+            // 显示结果区域
+            resultContainer.classList.remove('hidden');
+            resultContainer.classList.add('result-fade-in');
+            detailsContainer.classList.remove('hidden');
+            detailsContainer.classList.add('result-fade-in');
+        }
+
+        // 复制结果到剪贴板
+        function copyResult() {
+            if (!ocrResult || !ocrResult.data.line_texts) return;
+            
+            const texts = ocrResult.data.line_texts.filter(text => text.trim() !== '');
+            const textToCopy = texts.join('\n');
+            
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                showToast('识别结果已复制到剪贴板');
+            }).catch(err => {
+                console.error('复制失败:', err);
+                showToast('复制失败，请手动复制', 'error');
+            });
+        }
+
+        // 显示错误信息
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorAlert.classList.remove('hidden');
+        }
+
+        // 显示提示信息
+        function showToast(message, type = 'success') {
+            // 创建toast元素
+            const toast = document.createElement('div');
+            toast.className = `fixed bottom-4 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded-md text-white shadow-lg z-50 transition-all duration-300 ease-in-out opacity-0`;
+            
+            // 设置样式
+            if (type === 'success') {
+                toast.classList.add('bg-success');
+            } else {
+                toast.classList.add('bg-danger');
+            }
+            
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            
+            // 显示动画
+            setTimeout(() => {
+                toast.classList.remove('opacity-0');
+                toast.classList.add('opacity-100');
+            }, 10);
+            
+            // 自动消失
+            setTimeout(() => {
+                toast.classList.remove('opacity-100');
+                toast.classList.add('opacity-0');
+                setTimeout(() => {
+                    document.body.removeChild(toast);
+                }, 300);
+            }, 3000);
+        }
+
+        // HMAC-SHA256加密
+        async function hmacSha256(key, data, outputFormat = 'base64') {
+            const encoder = new TextEncoder();
+            const keyData = typeof key === 'string' ? encoder.encode(key) : key;
+            const dataData = encoder.encode(data);
+            
+            // 导入密钥
+            const cryptoKey = await crypto.subtle.importKey(
+                'raw',
+                keyData,
+                { name: 'HMAC', hash: 'SHA-256' },
+                false,
+                ['sign']
+            );
+            
+            // 计算HMAC
+            const signature = await crypto.subtle.sign('HMAC', cryptoKey, dataData);
+            
+            // 转换输出格式
+            if (outputFormat === 'hex') {
+                return Array.from(new Uint8Array(signature))
+                    .map(b => b.toString(16).padStart(2, '0'))
+                    .join('');
+            } else {
+                return btoa(String.fromCharCode(...new Uint8Array(signature)));
+            }
+        }
+
+        // SHA256哈希
+        async function sha256Hash(data) {
+            const encoder = new TextEncoder();
+            const dataBuffer = encoder.encode(data);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
+            
+            // 转换为十六进制
+            return Array.from(new Uint8Array(hashBuffer))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+        }
+
+        // 初始化应用
+        function initApp() {
+            initEventListeners();
+            
+            // 检查浏览器是否支持摄像头
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                showError('您的浏览器不支持摄像头访问，请使用现代浏览器如Chrome、Firefox或Edge。');
+                startCameraBtn.disabled = true;
+            }
+            
+            // 检查是否支持加密API
+            if (!window.crypto || !window.crypto.subtle) {
+                showError('您的浏览器不支持必要的加密功能，无法使用API鉴权。');
+                captureBtn.disabled = true;
+            }
+        }
+
+        // 页面加载完成后初始化
+        window.addEventListener('DOMContentLoaded', initApp);
+    </script>
+</body>
+</html>
